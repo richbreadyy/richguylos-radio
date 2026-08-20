@@ -1,59 +1,176 @@
--- RichGuyLos Radio — original Assetto Corsa CSP online integration.
--- This script only displays a small invitation and opens the public radio site.
+-- RichGuyLos Radio — private phone-controlled in-game audio for each driver.
+-- Every CSP client creates its own MediaPlayer. Nothing changes a global server station.
 
-local RADIO_URL = 'https://richbreadyy.github.io/richguylos-radio/'
-local visibleFor = 14
-local dismissed = false
+local RADIO_URL = 'https://richbreadyy.github.io/richguylos-radio/#phone'
+local SYNC_URL = 'wss://richguylos-radio-sync.richguylos-radio-sync.workers.dev'
+local pairingCode = 'RG-4821'
+local socket = nil
+local status = 'ENTER YOUR PHONE CODE'
+local phoneOnline = false
+local stateTimer = 0
+local mediaPlayer = ui.MediaPlayer():setAutoPlay(false):setVolume(0.8)
+local track = { loaded = false, title = 'No private song selected', artist = 'RichGuyLos Radio', index = 0, queueLength = 0 }
 
 local colors = {
-  background = rgbm(0.025, 0.071, 0.15, 0.96),
-  border = rgbm(0.24, 0.49, 1, 0.7),
-  blue = rgbm(0.24, 0.49, 1, 1),
-  orange = rgbm(1, 0.42, 0.09, 1),
-  white = rgbm(0.97, 0.97, 0.95, 1),
-  muted = rgbm(0.63, 0.68, 0.79, 1)
+  background = rgbm(0.025, 0.071, 0.15, 0.97), border = rgbm(0.24, 0.49, 1, 0.7),
+  blue = rgbm(0.24, 0.49, 1, 1), orange = rgbm(1, 0.42, 0.09, 1),
+  green = rgbm(0.15, 0.87, 0.54, 1), white = rgbm(0.97, 0.97, 0.95, 1), muted = rgbm(0.63, 0.68, 0.79, 1)
 }
 
+local function normalizedCode()
+  return pairingCode:gsub('[^%w]', ''):upper()
+end
+
+local function sendPhoneCommand(action)
+  if socket ~= nil and phoneOnline then socket({ type = 'phone-command', action = action }) end
+end
+
+local function sendState()
+  if socket == nil then return end
+  socket({
+    type = 'state', loaded = track.loaded, playing = track.loaded and mediaPlayer:playing(),
+    title = track.title, artist = track.artist, position = track.loaded and mediaPlayer:currentTime() or 0,
+    duration = track.loaded and mediaPlayer:duration() or 0, volume = mediaPlayer:volume(),
+    trackIndex = track.index, queueLength = track.queueLength, canSkip = track.queueLength > 1, source = 'phone-file'
+  })
+end
+
+local function applyCommand(message)
+  if not track.loaded then return end
+  if message.action == 'play' then mediaPlayer:play() end
+  if message.action == 'pause' then mediaPlayer:pause() end
+  if message.action == 'seek' then mediaPlayer:setCurrentTime(math.max(0, tonumber(message.value) or 0)) end
+  if message.action == 'volume' then mediaPlayer:setVolume(math.clamp(tonumber(message.value) or 0.8, 0, 1)) end
+  sendState()
+end
+
+local function loadTrack(message)
+  track.loaded = true
+  track.title = tostring(message.title or 'Phone audio')
+  track.artist = tostring(message.artist or 'Your phone')
+  track.index = tonumber(message.trackIndex) or 0
+  track.queueLength = tonumber(message.queueLength) or 1
+  mediaPlayer:setSource(tostring(message.url)):setCurrentTime(0)
+  if message.autoplay ~= false then
+    setTimeout(function()
+      mediaPlayer:play()
+      sendState()
+    end, 0.15)
+  end
+  status = 'PRIVATE AUDIO READY'
+end
+
+local function disconnect()
+  if socket ~= nil then socket:close() end
+  socket = nil
+  phoneOnline = false
+  status = 'PHONE DISCONNECTED • AUDIO STAYS LOCAL'
+end
+
+local function connect()
+  disconnect()
+  local code = normalizedCode()
+  if #code < 6 or SYNC_URL:find('YOUR%-RICHGUYLOS') then
+    status = SYNC_URL:find('YOUR%-RICHGUYLOS') and 'SYNC SERVICE NOT CONFIGURED' or 'CHECK PAIRING CODE'
+    return
+  end
+  status = 'CONNECTING...'
+  socket = web.socket(SYNC_URL..'/sync/'..code..'?role=game', function(message)
+    if message.type == 'hello' then status = 'GAME PLAYER ONLINE' end
+    if message.type == 'presence' then
+      phoneOnline = message.phoneConnected == true
+      status = phoneOnline and 'PHONE CONNECTED • PRIVATE TO YOU' or 'WAITING FOR YOUR PHONE'
+      if phoneOnline then sendState() end
+    end
+    if message.type == 'load' then loadTrack(message) end
+    if message.type == 'command' then applyCommand(message) end
+  end, {
+    encoding = 'json', reconnect = true,
+    onError = function() status = 'RECONNECTING...' phoneOnline = false end,
+    onClose = function() status = 'DISCONNECTED' phoneOnline = false end
+  })
+end
+
+local function timeLabel(value)
+  value = tonumber(value) or 0
+  if value ~= value then value = 0 end
+  value = math.max(0, math.floor(value))
+  return string.format('%d:%02d', math.floor(value / 60), value % 60)
+end
+
 function script.update(dt)
-  if visibleFor > 0 then
-    visibleFor = visibleFor - dt
+  stateTimer = stateTimer + dt
+  if stateTimer > 0.75 then
+    stateTimer = 0
+    sendState()
   end
 end
 
 function script.drawUI()
-  if dismissed or visibleFor <= 0 then return end
-
   local viewport = ui.windowSize()
-  local panelSize = vec2(340, 118)
+  local panelSize = vec2(420, 270)
   ui.setCursor(vec2(viewport.x - panelSize.x - 24, viewport.y - panelSize.y - 92))
-
   ui.pushStyleVar(ui.StyleVar.ChildRounding, 10)
   ui.pushStyleVar(ui.StyleVar.FrameRounding, 6)
   ui.pushStyleColor(ui.StyleColor.ChildBg, colors.background)
   ui.pushStyleColor(ui.StyleColor.Border, colors.border)
-  ui.pushStyleColor(ui.StyleColor.Button, colors.orange)
-  ui.pushStyleColor(ui.StyleColor.ButtonHovered, rgbm(1, 0.5, 0.16, 1))
+  ui.pushStyleColor(ui.StyleColor.Button, colors.blue)
+  ui.pushStyleColor(ui.StyleColor.ButtonHovered, rgbm(0.34, 0.59, 1, 1))
   ui.pushStyleColor(ui.StyleColor.Text, colors.white)
 
-  ui.childWindow('##richguylosRadioInvite', panelSize, true, 0, function()
-    ui.offsetCursorX(10)
-    ui.offsetCursorY(8)
+  ui.childWindow('##richguylosPrivateRadio', panelSize, true, 0, function()
+    ui.offsetCursorX(12)
+    ui.offsetCursorY(9)
     ui.textColored('RICHGUYLOS RADIO', colors.blue)
     ui.sameLine(0, 8)
-    ui.textColored('● LIVE', colors.orange)
-    ui.offsetCursorX(10)
-    ui.textColored('Every city has a sound.', colors.muted)
-    ui.offsetCursorX(10)
-    ui.offsetCursorY(7)
-
-    if ui.button('OPEN RADIO', vec2(238, 34)) then
-      os.openURL(RADIO_URL)
-      dismissed = true
+    ui.textColored(phoneOnline and '● PRIVATE PHONE LIVE' or '○ PHONE OFFLINE', phoneOnline and colors.green or colors.orange)
+    ui.offsetCursorX(12)
+    ui.textColored(status, colors.muted)
+    ui.offsetCursorX(12)
+    ui.pushItemWidth(188)
+    pairingCode = ui.inputText('##rglPairCode', pairingCode)
+    ui.popItemWidth()
+    ui.sameLine(0, 8)
+    if socket == nil then
+      if ui.button('CONNECT', vec2(92, 28)) then connect() end
+    else
+      if ui.button('DISCONNECT', vec2(92, 28)) then disconnect() end
     end
     ui.sameLine(0, 8)
-    if ui.button('LATER', vec2(62, 34)) then
-      dismissed = true
+    if ui.button('PHONE APP', vec2(92, 28)) then os.openURL(RADIO_URL) end
+    ui.offsetCursorX(12)
+    ui.offsetCursorY(8)
+    ui.textColored(track.title, colors.white)
+    ui.offsetCursorX(12)
+    ui.textColored(track.artist..'  •  '..timeLabel(mediaPlayer:currentTime())..' / '..timeLabel(mediaPlayer:duration()), colors.muted)
+    ui.offsetCursorX(12)
+    ui.offsetCursorY(8)
+    if phoneOnline and track.queueLength > 1 then
+      if ui.button('PREV', vec2(72, 38)) then sendPhoneCommand('previous') end
+      ui.sameLine(0, 8)
     end
+    if track.loaded then
+      if ui.button(mediaPlayer:playing() and 'PAUSE' or 'PLAY', vec2(112, 38)) then
+        if mediaPlayer:playing() then mediaPlayer:pause() else mediaPlayer:play() end
+        sendState()
+      end
+    else
+      ui.textColored('WAITING FOR PHONE SONG', colors.orange)
+    end
+    if phoneOnline and track.queueLength > 1 then
+      ui.sameLine(0, 8)
+      if ui.button('NEXT', vec2(72, 38)) then sendPhoneCommand('next') end
+    end
+    ui.sameLine(0, 10)
+    ui.textColored(string.format('VOL %d', math.floor(mediaPlayer:volume() * 100)), colors.muted)
+    ui.offsetCursorX(12)
+    local nextVolume, changed = ui.slider('##rglVolume', mediaPlayer:volume(), 0, 1, '')
+    if changed then
+      mediaPlayer:setVolume(nextVolume)
+      sendState()
+    end
+    ui.offsetCursorX(12)
+    ui.textColored('Only you hear this player. Other drivers keep their own music.', colors.muted)
   end)
 
   ui.popStyleColor(5)

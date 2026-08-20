@@ -1,0 +1,16 @@
+{
+  "name": "RichGuyLos Radio",
+  "short_name": "RGL Radio",
+  "description": "Play music from your phone and control it live inside Assetto Corsa.",
+  "start_url": "/richguylos-radio/#phone",
+  "scope": "/richguylos-radio/",
+  "display": "standalone",
+  "background_color": "#071226",
+  "theme_color": "#071226",
+  "orientation": "portrait-primary",
+  "icons": [
+    { "src": "rgl-icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" },
+    { "src": "rgl-icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "rgl-icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}
