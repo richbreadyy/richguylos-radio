@@ -4,8 +4,9 @@
 local QR_IMAGE_URL = 'https://richbreadyy.github.io/richguylos-radio/rgl-install-qr.png'
 local SYNC_URL = 'wss://richguylos-radio-sync.richguylos-radio-sync.workers.dev'
 local PLAYER_URL = 'https://richbreadyy.github.io/richguylos-radio/youtube-player.html'
-local saved = ac.storage({ pairingCode = '' })
+local saved = ac.storage({ pairingCode = '', panelCollapsed = false })
 local pairingCode = saved.pairingCode
+local panelCollapsed = saved.panelCollapsed
 local socket = nil
 local status = 'ENTER YOUR PHONE CODE'
 local phoneOnline = false
@@ -13,6 +14,7 @@ local stateTimer = 0
 local mediaPlayer = ui.MediaPlayer():setAutoPlay(false):setVolume(0.8)
 local track = { loaded = false, playing = false, title = 'No private song selected', artist = 'RichGuyLos Radio', index = 0, queueLength = 0, source = 'phone-file', position = 0, duration = 0, volume = 0.8 }
 local youtubeBrowser = nil
+local youtubeAudioEvent = nil
 local browserAvailable, WebBrowser = pcall(require, 'shared/web/browser')
 
 local colors = {
@@ -63,7 +65,10 @@ local function applyCommand(message)
     if message.action == 'play' then track.playing = true end
     if message.action == 'pause' then track.playing = false end
     if message.action == 'seek' then track.position = math.max(0, value or 0) end
-    if message.action == 'volume' then track.volume = math.clamp(value or 0.8, 0, 1) end
+    if message.action == 'volume' then
+      track.volume = math.clamp(value or 0.8, 0, 1)
+      if youtubeAudioEvent ~= nil then youtubeAudioEvent.volume = track.volume end
+    end
   else
     if message.action == 'play' then mediaPlayer:play() end
     if message.action == 'pause' then mediaPlayer:pause() end
@@ -100,6 +105,10 @@ local function loadYouTube(message)
   mediaPlayer:pause()
   if youtubeBrowser == nil then
     youtubeBrowser = WebBrowser({ size = vec2(640, 360), redirectAudio = true, dataKey = 'richguylos-radio-youtube' })
+      :onAudioEvent(function(_, event)
+        youtubeAudioEvent = event
+        event.volume = track.volume
+      end)
       :onReceive('youtube-ready', function(browser)
         status = 'YOUTUBE READY • STARTING AUDIO'
         setTimeout(function()
@@ -202,23 +211,37 @@ function script.drawUI()
     ui.popClipRect()
   end
   local viewport = ui.windowSize()
-  local panelSize = vec2(610, 300)
+  local panelSize = panelCollapsed and vec2(196, 46) or vec2(610, 300)
   ui.setCursor(vec2(viewport.x - panelSize.x - 24, viewport.y - panelSize.y - 92))
   ui.pushStyleVar(ui.StyleVar.ChildRounding, 10)
   ui.pushStyleVar(ui.StyleVar.FrameRounding, 6)
-  ui.pushStyleColor(ui.StyleColor.ChildBg, colors.background)
+  ui.pushStyleColor(ui.StyleColor.ChildBg, panelCollapsed and rgbm(0.025, 0.071, 0.15, 0.42) or rgbm(0.025, 0.071, 0.15, 0.62))
   ui.pushStyleColor(ui.StyleColor.Border, colors.border)
   ui.pushStyleColor(ui.StyleColor.Button, colors.blue)
   ui.pushStyleColor(ui.StyleColor.ButtonHovered, rgbm(0.34, 0.59, 1, 1))
   ui.pushStyleColor(ui.StyleColor.Text, colors.white)
 
   ui.childWindow('##richguylosPrivateRadio', panelSize, true, 0, function()
-    ui.offsetCursorX(12)
-    ui.offsetCursorY(9)
-    ui.textColored('RICHGUYLOS RADIO', colors.blue)
-    ui.sameLine(0, 8)
-    ui.textColored(phoneOnline and '● PRIVATE PHONE LIVE' or '○ PHONE OFFLINE', phoneOnline and colors.green or colors.orange)
-    ui.offsetCursorX(12)
+    if panelCollapsed then
+      ui.setCursor(vec2(8, 8))
+      if ui.button('OPEN RGL RADIO', vec2(142, 30)) then
+        panelCollapsed = false
+        saved.panelCollapsed = false
+      end
+      ui.sameLine(0, 8)
+      ui.textColored(phoneOnline and '●' or '○', phoneOnline and colors.green or colors.orange)
+    else
+      ui.offsetCursorX(12)
+      ui.offsetCursorY(9)
+      ui.textColored('RICHGUYLOS RADIO', colors.blue)
+      ui.sameLine(0, 8)
+      ui.textColored(phoneOnline and '● PRIVATE PHONE LIVE' or '○ PHONE OFFLINE', phoneOnline and colors.green or colors.orange)
+      ui.setCursor(vec2(538, 7))
+      if ui.button('HIDE', vec2(60, 27)) then
+        panelCollapsed = true
+        saved.panelCollapsed = true
+      end
+      ui.setCursor(vec2(12, 35))
     ui.textColored(status, colors.muted)
     ui.offsetCursorX(12)
     ui.pushItemWidth(188)
@@ -261,9 +284,15 @@ function script.drawUI()
     ui.sameLine(0, 10)
     ui.textColored(string.format('VOL %d', math.floor(currentVolume() * 100)), colors.muted)
     ui.offsetCursorX(12)
+    ui.pushItemWidth(232)
     local nextVolume, changed = ui.slider('##rglVolume', currentVolume(), 0, 1, '')
+    ui.popItemWidth()
     if changed then
       applyCommand({ action = 'volume', value = nextVolume })
+    end
+    ui.sameLine(0, 8)
+    if ui.button(currentVolume() > 0.01 and 'MUTE' or 'UNMUTE', vec2(82, 24)) then
+      applyCommand({ action = 'volume', value = currentVolume() > 0.01 and 0 or 0.8 })
     end
     ui.offsetCursorX(12)
     ui.textColored('Only you hear this player. Other drivers keep their own music.', colors.muted)
@@ -276,6 +305,7 @@ function script.drawUI()
     ui.textColored('SCAN WITH IPHONE CAMERA', colors.muted)
     ui.setCursor(vec2(432, 258))
     ui.textColored('ADD TO HOME SCREEN', colors.green)
+    end
   end)
 
   ui.popStyleColor(5)
