@@ -1,4 +1,4 @@
-const CACHE = 'richguylos-radio-v3'
+const CACHE = 'richguylos-radio-v4'
 const APP_SHELL = [
   '/richguylos-radio/',
   '/richguylos-radio/index.html',

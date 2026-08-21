@@ -1,7 +1,7 @@
 {
   "name": "RichGuyLos Radio",
   "short_name": "RGL Radio",
-  "description": "Play music from your phone and control it live inside Assetto Corsa.",
+  "description": "Pair your iPhone once and control your private music inside Assetto Corsa.",
   "start_url": "/richguylos-radio/#phone-app",
   "scope": "/richguylos-radio/",
   "display": "standalone",

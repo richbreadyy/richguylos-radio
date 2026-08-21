@@ -8,12 +8,11 @@ An original, responsive web-radio interface built with React and Vite.
 - Procedural in-browser audio that does not rely on third-party music or streams
 - Play, pause, previous, next, volume, keyboard, and animated waveform controls
 - Two editable private stream slots saved only in local browser storage
-- Installable iPhone/Android PWA with local audio-file selection
-- Signed native Android APK with a direct QR-code download
+- iPhone Home Screen app opened directly from the in-game QR code
 - Real private pairing through a Cloudflare Worker and Durable Object room
 - Temporary per-driver audio storage with byte-range streaming into CSP `ui.MediaPlayer`
 - Two-way phone/game controls for play, pause, seek, previous, next, and volume
-- One-time private pairing remembered by both the Android app and the CSP player
+- One-time private pairing remembered by both the Home Screen app and the CSP player
 - YouTube and YouTube Music links played through YouTube's official embedded player in CSP
 - Responsive desktop and mobile layouts
 - Accessible labels, focus states, and reduced-motion support
@@ -41,13 +40,13 @@ Each driver pairs with a separate code. A selected phone audio file is temporari
 
 Protected Apple Music and Spotify libraries cannot be imported. Drivers can choose regular audio files from their phone or paste a YouTube/YouTube Music link. YouTube playback uses the official embedded player; videos whose owners disable embedding cannot play.
 
-## Android app download
+## iPhone Home Screen app
 
-The QR code in the CSP panel points directly to the signed APK:
+The QR code in the CSP panel opens only the private phone pairing/player screen:
 
-`https://github.com/richbreadyy/richguylos-radio/releases/latest/download/RichGuyLos-Radio.apk`
+`https://richbreadyy.github.io/richguylos-radio/#phone-app`
 
-After the first pairing, the app and CSP script retain the driver's private code and reconnect automatically on later server joins.
+On iPhone, open the QR link in Safari, tap Share, then **Add to Home Screen**. After the first pairing, the Home Screen app and CSP script retain the driver's private code and reconnect automatically on later server joins.
 
 ## Assetto Corsa server integration
 
