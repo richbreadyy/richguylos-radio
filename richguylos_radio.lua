@@ -15,6 +15,8 @@ local mediaPlayer = ui.MediaPlayer():setAutoPlay(false):setVolume(0.8)
 local track = { loaded = false, playing = false, title = 'No private song selected', artist = 'RichGuyLos Radio', index = 0, queueLength = 0, source = 'phone-file', position = 0, duration = 0, volume = 0.8 }
 local youtubeBrowser = nil
 local youtubeAudioEvent = nil
+local youtubeReady = false
+local pendingYouTubeId = nil
 local browserAvailable, WebBrowser = pcall(require, 'shared/web/browser')
 
 local colors = {
@@ -92,32 +94,39 @@ local function loadTrack(message)
     setTimeout(function()
       mediaPlayer:play()
       sendState()
-    end, 0.15)
+    end, 0.02)
   end
   status = 'PRIVATE AUDIO READY'
 end
 
-local function loadYouTube(message)
-  if not browserAvailable then
-    status = 'YOUTUBE NEEDS CSP WEB BROWSER SUPPORT'
-    return
-  end
-  mediaPlayer:pause()
-  if youtubeBrowser == nil then
-    youtubeBrowser = WebBrowser({ size = vec2(640, 360), redirectAudio = true, dataKey = 'richguylos-radio-youtube' })
+local function startYouTube(videoId)
+  if youtubeBrowser == nil or not youtubeReady or videoId == nil then return end
+  pendingYouTubeId = nil
+  youtubeBrowser:awake():sendAsync('rgl-command', { action = 'load', videoId = videoId })
+  setTimeout(function()
+    if youtubeBrowser == nil or track.source ~= 'youtube' then return end
+    youtubeBrowser:awake():mouseInput(vec2(0.5, 0.5), true)
+    setTimeout(function()
+      if youtubeBrowser == nil then return end
+      youtubeBrowser:mouseInput(vec2(0.5, 0.5), false)
+      youtubeBrowser:sendAsync('rgl-command', { action = 'play' })
+    end, 0.03)
+  end, 0.02)
+end
+
+local function ensureYouTubeBrowser()
+  if not browserAvailable or youtubeBrowser ~= nil then return end
+  youtubeBrowser = WebBrowser({ size = vec2(640, 360), redirectAudio = true, dataKey = 'richguylos-radio-youtube' })
       :onAudioEvent(function(_, event)
         youtubeAudioEvent = event
         event.volume = track.volume
       end)
       :onReceive('youtube-ready', function(browser)
-        status = 'YOUTUBE READY • STARTING AUDIO'
-        setTimeout(function()
-          browser:awake():mouseInput(vec2(0.5, 0.5), true)
-          setTimeout(function()
-            browser:mouseInput(vec2(0.5, 0.5), false)
-            browser:sendAsync('rgl-command', { action = 'play' })
-          end, 0.08)
-        end, 0.15)
+        youtubeReady = true
+        if pendingYouTubeId ~= nil then
+          status = 'YOUTUBE READY • STARTING AUDIO'
+          startYouTube(pendingYouTubeId)
+        end
       end)
       :onReceive('youtube-state', function(_, data)
         track.loaded = data.loaded ~= false
@@ -137,7 +146,15 @@ local function loadYouTube(message)
         track.artist = 'Try another YouTube link'
         sendState()
       end)
+  youtubeBrowser:navigate(PLAYER_URL..'?prewarm=1')
+end
+
+local function loadYouTube(message)
+  if not browserAvailable then
+    status = 'YOUTUBE NEEDS CSP WEB BROWSER SUPPORT'
+    return
   end
+  mediaPlayer:pause()
   track.loaded = false
   track.playing = false
   track.title = 'Loading YouTube…'
@@ -146,8 +163,13 @@ local function loadYouTube(message)
   track.position = 0
   track.duration = 0
   track.queueLength = 1
-  youtubeBrowser:navigate(PLAYER_URL..'?v='..tostring(message.videoId))
+  pendingYouTubeId = tostring(message.videoId)
+  ensureYouTubeBrowser()
   status = 'YOUTUBE LOADING • PRIVATE TO YOU'
+  if youtubeReady then
+    status = 'YOUTUBE READY • STARTING AUDIO'
+    startYouTube(pendingYouTubeId)
+  end
   sendState()
 end
 
@@ -187,6 +209,9 @@ setTimeout(function()
   if #normalizedCode() >= 6 then connect() end
 end, 0.8)
 
+-- Load YouTube once when the session starts so phone selections do not wait for a cold browser.
+setTimeout(ensureYouTubeBrowser, 0.15)
+
 local function timeLabel(value)
   value = tonumber(value) or 0
   if value ~= value then value = 0 end
@@ -195,7 +220,7 @@ local function timeLabel(value)
 end
 
 function script.update(dt)
-  if youtubeBrowser ~= nil and track.source == 'youtube' then youtubeBrowser:awake() end
+  if youtubeBrowser ~= nil then youtubeBrowser:awake() end
   stateTimer = stateTimer + dt
   if stateTimer > 0.75 then
     stateTimer = 0
@@ -204,7 +229,7 @@ function script.update(dt)
 end
 
 function script.drawUI()
-  if youtubeBrowser ~= nil and track.source == 'youtube' then
+  if youtubeBrowser ~= nil then
     -- CEF must be drawn to process page events and redirected audio. Keep it active offscreen.
     ui.pushClipRect(vec2(0, 0), vec2(1, 1), true)
     youtubeBrowser:draw(vec2(-640, -360), vec2(0, 0), true)
