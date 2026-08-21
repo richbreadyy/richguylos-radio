@@ -48,10 +48,6 @@
       function runCommand(command) {
         if (!player) return false
         const action = command?.action
-        if (action === 'load' && /^[A-Za-z0-9_-]{11}$/.test(String(command.videoId || ''))) {
-          starter.hidden = false
-          player.loadVideoById({ videoId: String(command.videoId), startSeconds: 0 })
-        }
         if (action === 'play') player.playVideo()
         if (action === 'pause') player.pauseVideo()
         if (action === 'seek') player.seekTo(Number(command.value) || 0, true)

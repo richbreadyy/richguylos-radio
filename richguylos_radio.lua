@@ -15,8 +15,6 @@ local mediaPlayer = ui.MediaPlayer():setAutoPlay(false):setVolume(0.8)
 local track = { loaded = false, playing = false, title = 'No private song selected', artist = 'RichGuyLos Radio', index = 0, queueLength = 0, source = 'phone-file', position = 0, duration = 0, volume = 0.8 }
 local youtubeBrowser = nil
 local youtubeAudioEvent = nil
-local youtubeReady = false
-local pendingYouTubeId = nil
 local browserAvailable, WebBrowser = pcall(require, 'shared/web/browser')
 
 local colors = {
@@ -99,21 +97,6 @@ local function loadTrack(message)
   status = 'PRIVATE AUDIO READY'
 end
 
-local function startYouTube(videoId)
-  if youtubeBrowser == nil or not youtubeReady or videoId == nil then return end
-  pendingYouTubeId = nil
-  youtubeBrowser:awake():sendAsync('rgl-command', { action = 'load', videoId = videoId })
-  setTimeout(function()
-    if youtubeBrowser == nil or track.source ~= 'youtube' then return end
-    youtubeBrowser:awake():mouseInput(vec2(0.5, 0.5), true)
-    setTimeout(function()
-      if youtubeBrowser == nil then return end
-      youtubeBrowser:mouseInput(vec2(0.5, 0.5), false)
-      youtubeBrowser:sendAsync('rgl-command', { action = 'play' })
-    end, 0.03)
-  end, 0.02)
-end
-
 local function ensureYouTubeBrowser()
   if not browserAvailable or youtubeBrowser ~= nil then return end
   youtubeBrowser = WebBrowser({ size = vec2(640, 360), redirectAudio = true, dataKey = 'richguylos-radio-youtube' })
@@ -121,14 +104,21 @@ local function ensureYouTubeBrowser()
         youtubeAudioEvent = event
         event.volume = track.volume
       end)
-      :onReceive('youtube-ready', function(browser)
-        youtubeReady = true
-        if pendingYouTubeId ~= nil then
-          status = 'YOUTUBE READY • STARTING AUDIO'
-          startYouTube(pendingYouTubeId)
-        end
+      :onReceive('youtube-ready', function(browser, data)
+        if track.source ~= 'youtube' or tostring(data and data.videoId or '') == '' then return end
+        status = 'YOUTUBE READY • STARTING AUDIO'
+        setTimeout(function()
+          if youtubeBrowser == nil or track.source ~= 'youtube' then return end
+          browser:awake():mouseInput(vec2(0.5, 0.5), true)
+          setTimeout(function()
+            if youtubeBrowser == nil then return end
+            browser:mouseInput(vec2(0.5, 0.5), false)
+            browser:sendAsync('rgl-command', { action = 'play' })
+          end, 0.03)
+        end, 0.02)
       end)
       :onReceive('youtube-state', function(_, data)
+        if track.source ~= 'youtube' then return end
         track.loaded = data.loaded ~= false
         track.playing = data.playing == true
         track.title = tostring(data.title or track.title)
@@ -139,6 +129,7 @@ local function ensureYouTubeBrowser()
         sendState()
       end)
       :onReceive('youtube-error', function(_, data)
+        if track.source ~= 'youtube' then return end
         status = 'YOUTUBE VIDEO CANNOT PLAY • CODE '..tostring(data.code or '?')
         track.loaded = false
         track.playing = false
@@ -163,13 +154,9 @@ local function loadYouTube(message)
   track.position = 0
   track.duration = 0
   track.queueLength = 1
-  pendingYouTubeId = tostring(message.videoId)
   ensureYouTubeBrowser()
   status = 'YOUTUBE LOADING • PRIVATE TO YOU'
-  if youtubeReady then
-    status = 'YOUTUBE READY • STARTING AUDIO'
-    startYouTube(pendingYouTubeId)
-  end
+  youtubeBrowser:navigate(PLAYER_URL..'?v='..tostring(message.videoId)..'&fast=1')
   sendState()
 end
 
