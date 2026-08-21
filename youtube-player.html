@@ -6,14 +6,26 @@
     <title>RichGuyLos Radio YouTube Player</title>
     <style>
       html, body, #player { width: 100%; height: 100%; margin: 0; overflow: hidden; background: #000; }
+      body { position: relative; }
+      #starter { position: absolute; inset: 0; z-index: 10; width: 100%; height: 100%; border: 0; background: #000; color: #fff; cursor: pointer; }
+      #starter[hidden] { display: none; }
     </style>
   </head>
   <body>
     <div id="player"></div>
+    <button id="starter" type="button">Start YouTube audio</button>
     <script>
       const params = new URLSearchParams(location.search)
       const videoId = params.get('v') || ''
+      const starter = document.getElementById('starter')
       let player
+
+      starter.addEventListener('click', () => {
+        if (!player) return
+        player.playVideo()
+        starter.hidden = true
+        setTimeout(reportState, 200)
+      })
 
       function reportState() {
         if (!player || typeof player.getPlayerState !== 'function') return
@@ -47,10 +59,18 @@
           width: '640',
           height: '360',
           videoId,
-          playerVars: { autoplay: 1, controls: 0, enablejsapi: 1, playsinline: 1, rel: 0 },
+          playerVars: { autoplay: 1, controls: 0, enablejsapi: 1, playsinline: 1, rel: 0, origin: location.origin, widget_referrer: location.origin },
           events: {
-            onReady(event) { event.target.setVolume(80); event.target.playVideo(); reportState() },
-            onStateChange: reportState,
+            onReady(event) {
+              event.target.setVolume(80)
+              event.target.playVideo()
+              window.AC?.send?.('youtube-ready', { videoId })
+              reportState()
+            },
+            onStateChange(event) {
+              if (event.data === 1) starter.hidden = true
+              reportState()
+            },
             onError(event) { window.AC?.send?.('youtube-error', { code: event.data }) },
           },
         })

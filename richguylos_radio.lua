@@ -100,11 +100,15 @@ local function loadYouTube(message)
   mediaPlayer:pause()
   if youtubeBrowser == nil then
     youtubeBrowser = WebBrowser({ size = vec2(640, 360), redirectAudio = true, dataKey = 'richguylos-radio-youtube' })
-      :onLoadEnd(function(browser)
+      :onReceive('youtube-ready', function(browser)
+        status = 'YOUTUBE READY • STARTING AUDIO'
         setTimeout(function()
           browser:awake():mouseInput(vec2(0.5, 0.5), true)
-          setTimeout(function() browser:mouseInput(vec2(0.5, 0.5), false) end, 0.08)
-        end, 2.5)
+          setTimeout(function()
+            browser:mouseInput(vec2(0.5, 0.5), false)
+            browser:sendAsync('rgl-command', { action = 'play' })
+          end, 0.08)
+        end, 0.15)
       end)
       :onReceive('youtube-state', function(_, data)
         track.loaded = data.loaded ~= false
@@ -118,11 +122,16 @@ local function loadYouTube(message)
       end)
       :onReceive('youtube-error', function(_, data)
         status = 'YOUTUBE VIDEO CANNOT PLAY • CODE '..tostring(data.code or '?')
+        track.loaded = false
+        track.playing = false
+        track.title = 'YouTube blocked this video'
+        track.artist = 'Try another YouTube link'
+        sendState()
       end)
   end
-  track.loaded = true
-  track.playing = message.autoplay ~= false
-  track.title = tostring(message.title or 'YouTube Music')
+  track.loaded = false
+  track.playing = false
+  track.title = 'Loading YouTube…'
   track.artist = tostring(message.artist or 'YouTube')
   track.source = 'youtube'
   track.position = 0
@@ -186,6 +195,12 @@ function script.update(dt)
 end
 
 function script.drawUI()
+  if youtubeBrowser ~= nil and track.source == 'youtube' then
+    -- CEF must be drawn to process page events and redirected audio. Keep it active offscreen.
+    ui.pushClipRect(vec2(0, 0), vec2(1, 1), true)
+    youtubeBrowser:draw(vec2(-640, -360), vec2(0, 0), true)
+    ui.popClipRect()
+  end
   local viewport = ui.windowSize()
   local panelSize = vec2(610, 300)
   ui.setCursor(vec2(viewport.x - panelSize.x - 24, viewport.y - panelSize.y - 92))
