@@ -1,7 +1,7 @@
 -- RichGuyLos Radio — private phone-controlled in-game audio for each driver.
 -- Every CSP client creates its own MediaPlayer. Nothing changes a global server station.
 
-local RADIO_URL = 'https://richbreadyy.github.io/richguylos-radio/#phone'
+local QR_IMAGE_URL = 'https://richbreadyy.github.io/richguylos-radio/rgl-install-qr.png'
 local SYNC_URL = 'wss://richguylos-radio-sync.richguylos-radio-sync.workers.dev'
 local pairingCode = 'RG-4821'
 local socket = nil
@@ -108,7 +108,7 @@ end
 
 function script.drawUI()
   local viewport = ui.windowSize()
-  local panelSize = vec2(420, 270)
+  local panelSize = vec2(610, 300)
   ui.setCursor(vec2(viewport.x - panelSize.x - 24, viewport.y - panelSize.y - 92))
   ui.pushStyleVar(ui.StyleVar.ChildRounding, 10)
   ui.pushStyleVar(ui.StyleVar.FrameRounding, 6)
@@ -136,8 +136,8 @@ function script.drawUI()
     else
       if ui.button('DISCONNECT', vec2(92, 28)) then disconnect() end
     end
-    ui.sameLine(0, 8)
-    if ui.button('PHONE APP', vec2(92, 28)) then os.openURL(RADIO_URL) end
+    ui.sameLine(0, 10)
+    ui.textColored('SCAN QR →', colors.orange)
     ui.offsetCursorX(12)
     ui.offsetCursorY(8)
     ui.textColored(track.title, colors.white)
@@ -171,6 +171,15 @@ function script.drawUI()
     end
     ui.offsetCursorX(12)
     ui.textColored('Only you hear this player. Other drivers keep their own music.', colors.muted)
+
+    ui.drawRectFilled(vec2(432, 44), vec2(592, 204), rgbm.colors.white, 7)
+    ui.drawImageRounded(QR_IMAGE_URL, vec2(438, 50), vec2(586, 198), 4)
+    ui.setCursor(vec2(432, 214))
+    ui.textColored('SCAN WITH YOUR PHONE', colors.white)
+    ui.setCursor(vec2(432, 235))
+    ui.textColored('Install RichGuyLos Radio', colors.muted)
+    ui.setCursor(vec2(432, 258))
+    ui.textColored('IPHONE + ANDROID', colors.green)
   end)
 
   ui.popStyleColor(5)

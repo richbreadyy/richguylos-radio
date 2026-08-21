@@ -1,9 +1,10 @@
-const CACHE = 'richguylos-radio-v2'
+const CACHE = 'richguylos-radio-v3'
 const APP_SHELL = [
   '/richguylos-radio/',
   '/richguylos-radio/index.html',
   '/richguylos-radio/manifest.webmanifest',
   '/richguylos-radio/rgl-icon.svg',
+  '/richguylos-radio/rgl-install-qr.png',
 ]
 
 self.addEventListener('install', (event) => {
