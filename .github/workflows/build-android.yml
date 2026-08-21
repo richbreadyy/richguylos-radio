@@ -1,0 +1,68 @@
+name: Build RichGuyLos Radio Android App
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.19.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: mobile/pnpm-lock.yaml
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Install app dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build phone app
+        env:
+          VITE_SYNC_URL: wss://richguylos-radio-sync.richguylos-radio-sync.workers.dev
+          VITE_NATIVE_APP: '1'
+        run: |
+          pnpm build
+          pnpm exec cap sync android
+
+      - name: Restore private signing key
+        env:
+          RGL_KEYSTORE_B64: ${{ secrets.RGL_KEYSTORE_B64 }}
+        run: |
+          test -n "$RGL_KEYSTORE_B64"
+          printf '%s' "$RGL_KEYSTORE_B64" | base64 --decode > android/app/rgl-release.p12
+
+      - name: Build signed APK
+        env:
+          RGL_KEYSTORE_FILE: rgl-release.p12
+          RGL_KEYSTORE_PASSWORD: ${{ secrets.RGL_KEYSTORE_PASSWORD }}
+          RGL_KEY_ALIAS: ${{ secrets.RGL_KEY_ALIAS }}
+          RGL_KEY_PASSWORD: ${{ secrets.RGL_KEY_PASSWORD }}
+        run: |
+          chmod +x android/gradlew
+          cd android
+          ./gradlew assembleRelease --no-daemon
+          cp app/build/outputs/apk/release/app-release.apk ../RichGuyLos-Radio.apk
+
+      - name: Publish direct APK download
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view v1.0.0 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload v1.0.0 RichGuyLos-Radio.apk --clobber --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create v1.0.0 RichGuyLos-Radio.apk --target "$GITHUB_SHA" --title "RichGuyLos Radio 1.0.0" --notes "Direct Android app download for private phone-to-game music control." --repo "$GITHUB_REPOSITORY"
+          fi

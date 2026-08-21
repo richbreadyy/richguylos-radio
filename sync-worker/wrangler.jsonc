@@ -1,0 +1,9 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "richguylos-radio-sync",
+  "main": "src/index.js",
+  "compatibility_date": "2026-08-20",
+  "durable_objects": { "bindings": [{ "name": "ROOMS", "class_name": "SyncRoom" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["SyncRoom"] }],
+  "observability": { "enabled": true }
+}

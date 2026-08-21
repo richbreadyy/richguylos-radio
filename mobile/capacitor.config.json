@@ -1,0 +1,12 @@
+{
+  "appId": "com.richguylos.radio",
+  "appName": "RichGuyLos Radio",
+  "webDir": "dist",
+  "android": {
+    "allowMixedContent": false,
+    "backgroundColor": "#071226"
+  },
+  "server": {
+    "androidScheme": "https"
+  }
+}

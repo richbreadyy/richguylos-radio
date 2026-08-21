@@ -3,13 +3,17 @@
 
 local QR_IMAGE_URL = 'https://richbreadyy.github.io/richguylos-radio/rgl-install-qr.png'
 local SYNC_URL = 'wss://richguylos-radio-sync.richguylos-radio-sync.workers.dev'
-local pairingCode = 'RG-4821'
+local PLAYER_URL = 'https://richbreadyy.github.io/richguylos-radio/youtube-player.html'
+local saved = ac.storage({ pairingCode = '' })
+local pairingCode = saved.pairingCode
 local socket = nil
 local status = 'ENTER YOUR PHONE CODE'
 local phoneOnline = false
 local stateTimer = 0
 local mediaPlayer = ui.MediaPlayer():setAutoPlay(false):setVolume(0.8)
-local track = { loaded = false, title = 'No private song selected', artist = 'RichGuyLos Radio', index = 0, queueLength = 0 }
+local track = { loaded = false, playing = false, title = 'No private song selected', artist = 'RichGuyLos Radio', index = 0, queueLength = 0, source = 'phone-file', position = 0, duration = 0, volume = 0.8 }
+local youtubeBrowser = nil
+local browserAvailable, WebBrowser = pcall(require, 'shared/web/browser')
 
 local colors = {
   background = rgbm(0.025, 0.071, 0.15, 0.97), border = rgbm(0.24, 0.49, 1, 0.7),
@@ -25,27 +29,55 @@ local function sendPhoneCommand(action)
   if socket ~= nil and phoneOnline then socket({ type = 'phone-command', action = action }) end
 end
 
+local function isPlaying()
+  return track.source == 'youtube' and track.playing or (track.loaded and mediaPlayer:playing())
+end
+
+local function currentPosition()
+  return track.source == 'youtube' and track.position or (track.loaded and mediaPlayer:currentTime() or 0)
+end
+
+local function currentDuration()
+  return track.source == 'youtube' and track.duration or (track.loaded and mediaPlayer:duration() or 0)
+end
+
+local function currentVolume()
+  return track.source == 'youtube' and track.volume or mediaPlayer:volume()
+end
+
 local function sendState()
   if socket == nil then return end
   socket({
-    type = 'state', loaded = track.loaded, playing = track.loaded and mediaPlayer:playing(),
-    title = track.title, artist = track.artist, position = track.loaded and mediaPlayer:currentTime() or 0,
-    duration = track.loaded and mediaPlayer:duration() or 0, volume = mediaPlayer:volume(),
-    trackIndex = track.index, queueLength = track.queueLength, canSkip = track.queueLength > 1, source = 'phone-file'
+    type = 'state', loaded = track.loaded, playing = isPlaying(),
+    title = track.title, artist = track.artist, position = currentPosition(),
+    duration = currentDuration(), volume = currentVolume(),
+    trackIndex = track.index, queueLength = track.queueLength, canSkip = track.queueLength > 1, source = track.source
   })
 end
 
 local function applyCommand(message)
   if not track.loaded then return end
-  if message.action == 'play' then mediaPlayer:play() end
-  if message.action == 'pause' then mediaPlayer:pause() end
-  if message.action == 'seek' then mediaPlayer:setCurrentTime(math.max(0, tonumber(message.value) or 0)) end
-  if message.action == 'volume' then mediaPlayer:setVolume(math.clamp(tonumber(message.value) or 0.8, 0, 1)) end
+  if track.source == 'youtube' and youtubeBrowser ~= nil then
+    local value = tonumber(message.value)
+    youtubeBrowser:sendAsync('rgl-command', { action = message.action, value = value })
+    if message.action == 'play' then track.playing = true end
+    if message.action == 'pause' then track.playing = false end
+    if message.action == 'seek' then track.position = math.max(0, value or 0) end
+    if message.action == 'volume' then track.volume = math.clamp(value or 0.8, 0, 1) end
+  else
+    if message.action == 'play' then mediaPlayer:play() end
+    if message.action == 'pause' then mediaPlayer:pause() end
+    if message.action == 'seek' then mediaPlayer:setCurrentTime(math.max(0, tonumber(message.value) or 0)) end
+    if message.action == 'volume' then mediaPlayer:setVolume(math.clamp(tonumber(message.value) or 0.8, 0, 1)) end
+  end
   sendState()
 end
 
 local function loadTrack(message)
+  if youtubeBrowser ~= nil then youtubeBrowser:sendAsync('rgl-command', { action = 'stop' }) end
   track.loaded = true
+  track.source = 'phone-file'
+  track.playing = message.autoplay ~= false
   track.title = tostring(message.title or 'Phone audio')
   track.artist = tostring(message.artist or 'Your phone')
   track.index = tonumber(message.trackIndex) or 0
@@ -58,6 +90,47 @@ local function loadTrack(message)
     end, 0.15)
   end
   status = 'PRIVATE AUDIO READY'
+end
+
+local function loadYouTube(message)
+  if not browserAvailable then
+    status = 'YOUTUBE NEEDS CSP WEB BROWSER SUPPORT'
+    return
+  end
+  mediaPlayer:pause()
+  if youtubeBrowser == nil then
+    youtubeBrowser = WebBrowser({ size = vec2(640, 360), redirectAudio = true, dataKey = 'richguylos-radio-youtube' })
+      :onLoadEnd(function(browser)
+        setTimeout(function()
+          browser:awake():mouseInput(vec2(0.5, 0.5), true)
+          setTimeout(function() browser:mouseInput(vec2(0.5, 0.5), false) end, 0.08)
+        end, 2.5)
+      end)
+      :onReceive('youtube-state', function(_, data)
+        track.loaded = data.loaded ~= false
+        track.playing = data.playing == true
+        track.title = tostring(data.title or track.title)
+        track.artist = tostring(data.artist or 'YouTube')
+        track.position = tonumber(data.position) or track.position
+        track.duration = tonumber(data.duration) or track.duration
+        track.volume = math.clamp(tonumber(data.volume) or track.volume, 0, 1)
+        sendState()
+      end)
+      :onReceive('youtube-error', function(_, data)
+        status = 'YOUTUBE VIDEO CANNOT PLAY • CODE '..tostring(data.code or '?')
+      end)
+  end
+  track.loaded = true
+  track.playing = message.autoplay ~= false
+  track.title = tostring(message.title or 'YouTube Music')
+  track.artist = tostring(message.artist or 'YouTube')
+  track.source = 'youtube'
+  track.position = 0
+  track.duration = 0
+  track.queueLength = 1
+  youtubeBrowser:navigate(PLAYER_URL..'?v='..tostring(message.videoId))
+  status = 'YOUTUBE LOADING • PRIVATE TO YOU'
+  sendState()
 end
 
 local function disconnect()
@@ -83,6 +156,7 @@ local function connect()
       if phoneOnline then sendState() end
     end
     if message.type == 'load' then loadTrack(message) end
+    if message.type == 'youtube-load' then loadYouTube(message) end
     if message.type == 'command' then applyCommand(message) end
   end, {
     encoding = 'json', reconnect = true,
@@ -90,6 +164,10 @@ local function connect()
     onClose = function() status = 'DISCONNECTED' phoneOnline = false end
   })
 end
+
+setTimeout(function()
+  if #normalizedCode() >= 6 then connect() end
+end, 0.8)
 
 local function timeLabel(value)
   value = tonumber(value) or 0
@@ -99,6 +177,7 @@ local function timeLabel(value)
 end
 
 function script.update(dt)
+  if youtubeBrowser ~= nil and track.source == 'youtube' then youtubeBrowser:awake() end
   stateTimer = stateTimer + dt
   if stateTimer > 0.75 then
     stateTimer = 0
@@ -128,7 +207,11 @@ function script.drawUI()
     ui.textColored(status, colors.muted)
     ui.offsetCursorX(12)
     ui.pushItemWidth(188)
-    pairingCode = ui.inputText('##rglPairCode', pairingCode)
+    local editedCode = ui.inputText('##rglPairCode', pairingCode)
+    if editedCode ~= pairingCode then
+      pairingCode = editedCode
+      saved.pairingCode = editedCode
+    end
     ui.popItemWidth()
     ui.sameLine(0, 8)
     if socket == nil then
@@ -142,7 +225,7 @@ function script.drawUI()
     ui.offsetCursorY(8)
     ui.textColored(track.title, colors.white)
     ui.offsetCursorX(12)
-    ui.textColored(track.artist..'  •  '..timeLabel(mediaPlayer:currentTime())..' / '..timeLabel(mediaPlayer:duration()), colors.muted)
+    ui.textColored(track.artist..'  •  '..timeLabel(currentPosition())..' / '..timeLabel(currentDuration()), colors.muted)
     ui.offsetCursorX(12)
     ui.offsetCursorY(8)
     if phoneOnline and track.queueLength > 1 then
@@ -150,9 +233,8 @@ function script.drawUI()
       ui.sameLine(0, 8)
     end
     if track.loaded then
-      if ui.button(mediaPlayer:playing() and 'PAUSE' or 'PLAY', vec2(112, 38)) then
-        if mediaPlayer:playing() then mediaPlayer:pause() else mediaPlayer:play() end
-        sendState()
+      if ui.button(isPlaying() and 'PAUSE' or 'PLAY', vec2(112, 38)) then
+        applyCommand({ action = isPlaying() and 'pause' or 'play' })
       end
     else
       ui.textColored('WAITING FOR PHONE SONG', colors.orange)
@@ -162,12 +244,11 @@ function script.drawUI()
       if ui.button('NEXT', vec2(72, 38)) then sendPhoneCommand('next') end
     end
     ui.sameLine(0, 10)
-    ui.textColored(string.format('VOL %d', math.floor(mediaPlayer:volume() * 100)), colors.muted)
+    ui.textColored(string.format('VOL %d', math.floor(currentVolume() * 100)), colors.muted)
     ui.offsetCursorX(12)
-    local nextVolume, changed = ui.slider('##rglVolume', mediaPlayer:volume(), 0, 1, '')
+    local nextVolume, changed = ui.slider('##rglVolume', currentVolume(), 0, 1, '')
     if changed then
-      mediaPlayer:setVolume(nextVolume)
-      sendState()
+      applyCommand({ action = 'volume', value = nextVolume })
     end
     ui.offsetCursorX(12)
     ui.textColored('Only you hear this player. Other drivers keep their own music.', colors.muted)
@@ -177,9 +258,9 @@ function script.drawUI()
     ui.setCursor(vec2(432, 214))
     ui.textColored('SCAN WITH YOUR PHONE', colors.white)
     ui.setCursor(vec2(432, 235))
-    ui.textColored('Install RichGuyLos Radio', colors.muted)
+    ui.textColored('DIRECT APP DOWNLOAD', colors.muted)
     ui.setCursor(vec2(432, 258))
-    ui.textColored('IPHONE + ANDROID', colors.green)
+    ui.textColored('ANDROID APK', colors.green)
   end)
 
   ui.popStyleColor(5)
